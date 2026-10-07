@@ -1070,6 +1070,20 @@ app.get('/api/servers/:id/crash-scan', requireAdmin, asyncHandler(async (req, re
   res.json({ report: reportName, lines, suspects });
 }));
 
+const INSTALL_WAIT_TIMEOUT_MS = 10 * 60 * 1000;
+const INSTALL_POLL_INTERVAL_MS = 5000;
+
+async function waitForServerInstall(serverId, onWaiting) {
+  const deadline = Date.now() + INSTALL_WAIT_TIMEOUT_MS;
+  for (;;) {
+    const data = await pteroClient(`/servers/${serverId}`);
+    if (!data.attributes.is_installing) return;
+    if (Date.now() > deadline) throw new Error('Timed out waiting for the server install to finish');
+    onWaiting();
+    await new Promise(resolve => setTimeout(resolve, INSTALL_POLL_INTERVAL_MS));
+  }
+}
+
 // Install modpack on a server (streaming progress)
 app.post('/api/servers/:id/install-modpack', perm('servers.modpacks'), async (req, res) => {
   req.setTimeout(600000);
@@ -1083,6 +1097,7 @@ app.post('/api/servers/:id/install-modpack', perm('servers.modpacks'), async (re
   let tmpDir;
 
   function send(stage, message, progress, extra) {
+    console.log(`[install-modpack] ${serverId} ${stage}: ${message}`);
     res.write(JSON.stringify({ stage, message, progress, ...extra }) + '\n');
   }
 
@@ -1324,6 +1339,8 @@ app.post('/api/servers/:id/install-modpack', perm('servers.modpacks'), async (re
       const chunkName = `modpack-part${c}.zip`;
       send('upload', `Uploading${chunkLabel}...`, 78 + Math.round((c / totalChunks) * 10));
 
+      await waitForServerInstall(serverId, () => send('wait', 'Waiting for server install to finish...', 78));
+
       const uploadUrlData = await pteroClient(`/servers/${serverId}/files/upload`);
       const uploadUrl = uploadUrlData.attributes.url;
 
@@ -1395,6 +1412,7 @@ app.post('/api/servers/:id/install-modpack', perm('servers.modpacks'), async (re
     send('done', 'Modpack installed!', 100, { result: { success: true, dependencies: deps, filesInstalled: filesCount, skippedMods } });
     res.end();
   } catch (e) {
+    console.error(`[install-modpack] ${serverId} failed:`, e);
     send('error', e.message, -1);
     res.end();
   } finally {
