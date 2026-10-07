@@ -1083,6 +1083,7 @@ app.post('/api/servers/:id/install-modpack', perm('servers.modpacks'), async (re
   let tmpDir;
 
   function send(stage, message, progress, extra) {
+    console.log(`[install-modpack] ${serverId} ${stage}: ${message}`);
     res.write(JSON.stringify({ stage, message, progress, ...extra }) + '\n');
   }
 
@@ -1395,6 +1396,7 @@ app.post('/api/servers/:id/install-modpack', perm('servers.modpacks'), async (re
     send('done', 'Modpack installed!', 100, { result: { success: true, dependencies: deps, filesInstalled: filesCount, skippedMods } });
     res.end();
   } catch (e) {
+    console.error(`[install-modpack] ${serverId} failed:`, e);
     send('error', e.message, -1);
     res.end();
   } finally {
